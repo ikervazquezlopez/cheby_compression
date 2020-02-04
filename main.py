@@ -30,6 +30,29 @@ def cheby_coeff(img, h, w):
         i = i-1
     return sum/4 # WARNING with this, I am not sure about the division by 4
 
+def DCT_coeff(block, u, v):
+    bh, bw = block.shape
+
+    # Normalization factors
+    a_u = 1
+    a_v = 1
+    if u == 0:
+        a_u = 1/math.sqrt(2)
+    if v == 0:
+        a_v = 1/math.sqrt(2)
+
+    # Compute the frequence (u,v) coeff sum
+    sum = 0
+    for x in range(bw):
+        for y in range(bh):
+            c1 = math.cos( (2*x+1)*u*PI / 16 )
+            c2 = math.cos( (2*y+1)*v*PI / 16 )
+            sum = block[y,x] * c1 * c2
+    sum = 0.25 * a_u*a_v * sum
+    
+    return sum
+
+
 def generate_image_blocks(img):
     h, w = img.shape
     grid_size_x = int( w / block_size[1] )
