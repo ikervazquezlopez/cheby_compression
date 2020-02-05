@@ -13,6 +13,15 @@ test_block = np.array([ [52, 55, 61, 66, 70, 61, 64, 73],
                         [85, 71, 64, 59, 55, 61, 65, 83],
                         [87, 79, 69, 68, 65, 76, 78, 94]])
 
+test_block_bin = np.array([ [0, 0, 0, 0, 255, 255, 255, 255],
+                        [0, 0, 0, 0, 255, 255, 255, 255],
+                        [0, 0, 0, 0, 255, 255, 255, 255],
+                        [0, 0, 0, 0, 255, 255, 255, 255],
+                        [0, 0, 0, 0, 255, 255, 255, 255],
+                        [0, 0, 0, 0, 255, 255, 255, 255],
+                        [0, 0, 0, 0, 255, 255, 255, 255],
+                        [0, 0, 0, 0, 255, 255, 255, 255]])
+
 block_size = (8, 8)
 
 def T(k,l, theta1, theta2):
@@ -26,18 +35,31 @@ def T(k,l, theta1, theta2):
                     math.cos(2*PI*(k*theta1 - (2*k+l)*theta2)) +
                     math.cos(2*PI*((k+l)*theta1 - (2*k+l)*theta2)) )
 
-def cheby_coeff(img, h, w):
+def cheby_coeff(img, theta1, theta2):
+    h, w = img.shape
     i = w
     sum = 0
     for l in range(0, h):
         for k in range(0,w):
             if k >= i:
                 continue
-            theta1 = 0.5 * k/w
-            theta2 = 0.5 * l/h
-            sum = sum + img[l,k]*math.cos(PI*k/w)*math.cos(PI*l/h)#T(k,l,theta1, theta2)
-        i = i-1
+            sum = sum + img[l,k]*T(k,l,theta1, theta2)
+        #i = i-1
     return sum/4 # WARNING with this, I am not sure about the division by 4
+
+def cheby_transform(img):
+    h, w = img.shape
+    coeffs = np.zeros(img.shape)
+    i = w
+    for u in range(0, w):
+        for v in range(0, h):
+            if u == 0:
+                coeffs[v-1, w-1] = DCT_coeff(img, 0.5*u/w, 0.5*v/h)
+            if v == 0:
+                coeffs[h-1, u-1] = DCT_coeff(img, 0.5*u/w, 0.5*v/h)
+            else:
+                coeffs[v-1, u-1] = DCT_coeff(img, 0.5*u/w, 0.5*v/h)
+    return coeffs
 
 def DCT_coeff(block, u, v):
     bh, bw = block.shape
@@ -69,6 +91,33 @@ def DCT_transform(img):
             coeffs[v, u] = DCT_coeff(img, u, v)
     return coeffs
 
+def DCT_inv_coeff(coeff, x, y):
+    h, w = coeff.shape
+
+    sum = 0
+    for u in range(0, w):
+        for v in range(0, h):
+            # Normalization factors
+            a_u = 1
+            a_v = 1
+            if u == 0:
+                a_u = 1/math.sqrt(2)
+            if v == 0:
+                a_v = 1/math.sqrt(2)
+
+            c1 = math.cos( (2*x+1)*u*PI / 16 )
+            c2 = math.cos( (2*y+1)*v*PI / 16 )
+            sum = sum + a_u*a_v * coeff[v, u] * c1 * c2
+    return sum / 4
+
+def DCT_inv_transform(coeff):
+    h, w = coeff.shape
+    img = np.zeros(coeff.shape)
+    for x in range(0, w):
+        for y in range(0, h):
+            img[y,x] = DCT_inv_coeff(coeff, x, y)
+    return img
+
 
 def generate_image_blocks(img):
     h, w = img.shape
@@ -95,10 +144,16 @@ if __name__ == '__main__':
     img = cv2.imread("test.jpeg", cv2.IMREAD_GRAYSCALE)
 
     test_block_shift = test_block - 128
-    G = np.around(DCT_transform(test_block_shift), decimals=2)
+    G = DCT_transform(test_block_shift)
+    IG = DCT_inv_transform(G) + 128
+    C = cheby_transform(test_block_shift)
+    Gp = DCT_transform(G)
+    GP_inv = DCT_inv_transform(DCT_inv_transform(Gp))
 
     print("test_block DCT")
     print(G)
+    print("test_block cheby")
+    print(C)
     blocks = generate_image_blocks(img)
 
     block = img[y:y+h, x:x+w]
@@ -116,7 +171,15 @@ if __name__ == '__main__':
     #cv2.imwrite("block.png", block)
     #cv2.imwrite("coeff.png", coeff)
     #print(coeff)
+    print(np.max(np.abs(G)))
+    print(255*np.abs(G)/np.max(np.abs(G)))
+    cv2.imwrite("out/source.png", test_block)
+    cv2.imwrite("out/cheby_transform.png", 255*np.abs(C)/np.max(np.abs(C)))
+    cv2.imwrite("out/DCT_transform_of_cheby.png", 255*np.abs(Gp)/np.max(np.abs(Gp)))
+    cv2.imwrite("out/DCT_transform.png", 255*np.abs(G)/np.max(np.abs(G)))
+    cv2.imwrite("out/DCT_reconstructed.png", GP_inv + 128)
 
+    print(np.max(np.abs(IG-test_block)))
 
     #cv2.imwrite("out/block00.png", blocks[20,20])
     #cv2.imwrite("out/block01.png", blocks[20,21])
