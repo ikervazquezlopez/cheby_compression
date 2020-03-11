@@ -14,6 +14,20 @@ Q = np.array([[16, 11, 10, 16, 24, 40, 51, 61],
               [49, 64, 78, 87, 103, 121, 120, 101],
               [72, 92, 95, 98, 112, 100, 103, 99]])
 
+def compute_Q_matrix(quality_factor = 50):
+    # Compute S
+    S = 0
+    if quality_factor < 50:
+        S = 5000 / quality_factor
+    else:
+        S = 200 - 2*quality_factor
+
+    Qm = np.floor((S*Q + 50) / 100) # compute new Q matrix
+    Qm[Qm == 0] = 1 # prevents dividint by 0
+
+    return Qm
+
+
 def generate_image_blocks(img):
     h, w = img.shape
     grid_size_x = int( w / block_size[1] )
@@ -112,3 +126,5 @@ if __name__ == '__main__':
     print(arranged_DCT_coeffs[7,7])
 
     cv2.imwrite("test_out_DCT_block.png", arranged_DCT_coeffs[1,1])
+
+    print(compute_Q_matrix(quality_factor=80))
