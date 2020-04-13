@@ -13,16 +13,33 @@ test_block = np.array([ [52, 55, 61, 66, 70, 61, 64, 73],
                         [85, 71, 64, 59, 55, 61, 65, 83],
                         [87, 79, 69, 68, 65, 76, 78, 94]])
 
-test_block_bin = np.array([ [0, 0, 0, 0, 255, 255, 255, 255],
-                        [0, 0, 0, 0, 255, 255, 255, 255],
-                        [0, 0, 0, 0, 255, 255, 255, 255],
-                        [0, 0, 0, 0, 255, 255, 255, 255],
-                        [0, 0, 0, 0, 255, 255, 255, 255],
-                        [0, 0, 0, 0, 255, 255, 255, 255],
-                        [0, 0, 0, 0, 255, 255, 255, 255],
-                        [0, 0, 0, 0, 255, 255, 255, 255]])
+test_block_bin = np.array([ [255, 255, 255, 255, 255, 255, 255, 255],
+                        [255, 255, 255, 255, 255, 255, 255, 255],
+                        [255, 255, 255, 255, 255, 255, 255, 255],
+                        [255, 255, 255, 255, 255, 255, 255, 255],
+                        [0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0]])
 
 block_size = (8, 8)
+
+CP = np.zeros(block_size)
+
+def generate_CP():
+    for n in range(0, block_size[1]):
+        for k in range(0, block_size[1]):
+            T_1D(n, k)
+
+def T_1D(n, k):
+    x = math.cos(k/(2*block_size[1]))
+    print([n,k], x)
+    if n == 0:
+        CP[k, 0] = 1
+    elif n == 1:
+        CP[k,1] = x
+    else:
+        CP[k,n] = 2*x*CP[k,n-1] - CP[k,n-2]
 
 def T(k,l, theta1, theta2):
     if l == 0:
@@ -35,6 +52,51 @@ def T(k,l, theta1, theta2):
                     math.cos(2*PI*(k*theta1 - (2*k+l)*theta2)) +
                     math.cos(2*PI*((k+l)*theta1 - (2*k+l)*theta2)) )
 
+def cheby_coeff_square(img, x1, x2):
+    h, w = img.shape
+    i = w
+    sum = 0
+
+    for l in range(0, h):
+        y = math.cos(l/(2*block_size[1]))
+        uy = 1/(math.sqrt(1-y*y)+0.000001)
+        for k in range(0,w):
+            x = math.cos(k/(2*block_size[1]))
+            ux = 1/(math.sqrt(1-x*x)+0.000001)
+            sum = sum + ux*uy*img[l,k]*CP[l,x1]*CP[k,x2]
+        #i = i-1
+    return 4*sum/(PI*PI) # WARNING with this, I am not sure about the division by 4
+
+def cheby_inv_coeff_square(img, x, y):
+    h, w = img.shape
+    i = w
+    sum = 0
+    for l in range(0, h):
+        for k in range(0,w):
+            sum = sum + coeff[l,k]*CP[l,x]*CP[k,y]
+        #i = i-1
+    return sum # WARNING with this, I am not sure about the division by 4
+
+def cheby_transform_square(img):
+    h, w = img.shape
+    coeffs = np.zeros(img.shape)
+    i = w
+    for u in range(0, w):
+        for v in range(0, h):
+            coeffs[v, u] = cheby_coeff_square(img, u, v)#DCT_coeff(img, 0.5*u/w, 0.5*v/h)
+    return coeffs
+
+def cheby_inv_transform_square(coeffs):
+    h, w = coeffs.shape
+    img = np.zeros(coeffs.shape)
+    i = w
+    for x in range(0, w):
+        for y in range(0, h):
+            img[x, y] = cheby_coeff_square(coeffs, x, y)#DCT_coeff(img, 0.5*u/w, 0.5*v/h)
+    return img
+
+
+
 def cheby_coeff(img, theta1, theta2):
     h, w = img.shape
     i = w
@@ -43,7 +105,19 @@ def cheby_coeff(img, theta1, theta2):
         for k in range(0,w):
             if k >= i:
                 continue
-            sum = sum + img[l,k]*T(k,l,theta1, theta2)
+            sum = sum + coef[l,k]*T(k,l,theta1, theta2)
+        #i = i-1
+    return sum/4 # WARNING with this, I am not sure about the division by 4
+
+def cheby_coeff_inv(coeff, theta1, theta2):
+    h, w = img.shape
+    i = w
+    sum = 0
+    for l in range(0, h):
+        for k in range(0,w):
+            if k >= i:
+                continue
+            sum = sum + coeff[l,k]*T(k,l,theta1, theta2)
         #i = i-1
     return sum/4 # WARNING with this, I am not sure about the division by 4
 
@@ -54,11 +128,11 @@ def cheby_transform(img):
     for u in range(0, w):
         for v in range(0, h):
             if u == 0:
-                coeffs[v-1, w-1] = DCT_coeff(img, 0.5*u/w, 0.5*v/h)
+                coeffs[v-1, w-1] = cheby_coeff_square(img, u, v)#DCT_coeff(img, 0.5*u/w, 0.5*v/h)
             if v == 0:
-                coeffs[h-1, u-1] = DCT_coeff(img, 0.5*u/w, 0.5*v/h)
+                coeffs[h-1, u-1] = cheby_coeff_square(img, u, v)#DCT_coeff(img, 0.5*u/w, 0.5*v/h)
             else:
-                coeffs[v-1, u-1] = DCT_coeff(img, 0.5*u/w, 0.5*v/h)
+                coeffs[v-1, u-1] = cheby_coeff_square(img, u, v)#DCT_coeff(img, 0.5*u/w, 0.5*v/h)
     return coeffs
 
 def DCT_coeff(block, u, v):
@@ -137,6 +211,35 @@ def generate_image_blocks(img):
 
 if __name__ == '__main__':
 
+    generate_CP()
+
+    #img = cv2.imread("test_pano.png", cv2.IMREAD_GRAYSCALE)
+    #img = cv2.resize(img, None, fx=0.0625, fy=0.0625)
+    print("Generating blocks...")
+    #blocks = generate_image_blocks(img)
+    #bh, bw, _, _ = blocks.shape
+    dct = np.zeros(block_size)
+    dct2 = np.zeros(block_size)
+    #print(bw, bh)
+    print("Processing blocks...")
+    dct = cheby_transform_square(test_block_bin/255)#np.full(block_size, 2))
+    #dct = cheby_inv_transform_square(dct)
+    """
+    for bx in range(0,bw):
+        print(bx, bw)
+        for by in range(0,bh):
+            freq = cheby_transform(blocks[by,bx])
+            dct = dct + np.abs(freq)
+            dct2 = dct2 + np.abs(DCT_transform(freq))
+    #dct = dct / (bx*by)
+    #dct2 = dct2 / (bx*by)
+    """
+    cv2.imwrite("out/dct_avg.png", 255*np.abs(dct)/np.max(np.abs(dct)))
+    #cv2.imwrite("out/dct_avg.png", 255*np.abs(dct)/np.max(np.abs(dct)))
+    #cv2.imwrite("out/dct2_avg.png", 255*np.abs(dct2)/np.max(np.abs(dct2)))
+
+
+    """
     w = 8
     h = 8
     x = 140
@@ -186,3 +289,4 @@ if __name__ == '__main__':
     #cv2.imwrite("out/block02.png", blocks[20,22])
     #cv2.imwrite("out/block10.png", blocks[21,20])
     #cv2.imwrite("out/block20.png", blocks[22,20])
+    """

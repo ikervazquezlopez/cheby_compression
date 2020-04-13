@@ -14,6 +14,8 @@ Q = np.array([[16, 11, 10, 16, 24, 40, 51, 61],
               [49, 64, 78, 87, 103, 121, 120, 101],
               [72, 92, 95, 98, 112, 100, 103, 99]])
 
+
+
 def compute_Q_matrix(quality_factor = 50):
     # Compute S
     S = 0
@@ -41,6 +43,16 @@ def generate_image_blocks(img):
             x_end = x_start + block_size[1]
             block_img[y, x] = img[y_start:y_end, x_start:x_end]
     return block_img
+
+def generate_image_from_blocks(blocks):
+    gh, gw, bh, bw = blocks.shape
+    img = np.zeros((gh*bh, gw*bw))
+    for u in range(0, bw):
+        for v in range(0, bh):
+            for x in range(0, gw):
+                for y in range(0, gh):
+                    img[y*bh+v, x*bw+u] = blocks[y, x, v, u]
+    return img
 
 def DCT_coeff(block, u, v):
     bh, bw = block.shape
@@ -103,7 +115,7 @@ def sort_DCT_coefficients(blocks):
 
 
 if __name__ == '__main__':
-    img = cv2.imread("LANDSCAPE.png", cv2.IMREAD_GRAYSCALE)
+    img = cv2.imread("arranged_coefficients.png", cv2.IMREAD_GRAYSCALE)
     img = cv2.resize(img, (64,64))
     img = img - 128
 
@@ -117,14 +129,17 @@ if __name__ == '__main__':
     DCT_blocks = np.zeros_like(blocks)
     for x in range(0,grid_size_x):
         for y in range(0,grid_size_y):
-            DCT_blocks[y, x] = DCT_transform(blocks[y,x]) # Transfor step
+            DCT_blocks[y, x] = DCT_transform(blocks[y,x]) # Transform step
             DCT_blocks[y, x] = DCT_blocks[y, x] / Q  #Quantization step
 
-    arranged_DCT_coeffs = sort_DCT_coefficients(DCT_blocks)
+    #arranged_DCT_coeffs = sort_DCT_coefficients(DCT_blocks)
+    arranged_DCT_coeffs = np.moveaxis(DCT_blocks, 2, 0)
+    arranged_DCT_coeffs = np.moveaxis(arranged_DCT_coeffs, 3, 1)
+    #arranged_DCT_coeffs = DCT_blocks
+    DCT_block_image = generate_image_from_blocks(DCT_blocks)
+    arranged_DCT_image = generate_image_from_blocks(arranged_DCT_coeffs)
 
-    print(arranged_DCT_coeffs.shape)
-    print(arranged_DCT_coeffs[7,7])
+    print(np.sum(DCT_block_image), DCT_block_image.shape, DCT_block_image.dtype)
+    print(np.sum(arranged_DCT_image), arranged_DCT_image.shape, arranged_DCT_image.dtype)
 
-    cv2.imwrite("test_out_DCT_block.png", arranged_DCT_coeffs[1,1])
-
-    print(compute_Q_matrix(quality_factor=80))
+    cv2.imwrite("image_from_blocks.png", arranged_DCT_image)
