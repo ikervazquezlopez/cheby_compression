@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-
+import sys
 import math
 
 
@@ -32,7 +32,7 @@ def generate_base_0_0(triangle_w, triangle_h):
 def generate_base_0_n(n, triangle_w, triangle_h):
     triangle = np.zeros((triangle_h,triangle_w))
     for y in range(0,triangle_h):
-        t2 = y/triangle_h * 0.5
+        t2 = (triangle_h-y)/triangle_h * 0.5
         for x in range(0, y+1):
             t1 = x/triangle_w * 0.5
             triangle[x,triangle_h-y-1] = T_0_n(n,t1,t2)
@@ -41,7 +41,7 @@ def generate_base_0_n(n, triangle_w, triangle_h):
 def generate_base_n_0(n, triangle_w, triangle_h):
     triangle = np.zeros((triangle_h,triangle_w))
     for y in range(0,triangle_h):
-        t2 = y/triangle_h * 0.5
+        t2 = (triangle_h-y)/triangle_h * 0.5
         for x in range(0, y+1):
             t1 = x/triangle_w * 0.5
             triangle[x,triangle_h-y-1] = T_n_0(n,t1,t2)
@@ -51,7 +51,7 @@ def generate_base_n_0(n, triangle_w, triangle_h):
 def generate_base(k, l, triangle_w, triangle_h):
     triangle = np.zeros((triangle_h,triangle_w))
     for y in range(0,triangle_h):
-        t2 = y/triangle_h * 0.5
+        t2 = (triangle_h-y)/triangle_h * 0.5
         for x in range(0, y+1):
             t1 = x/triangle_w * 0.5
             triangle[x,triangle_h-y-1] = T_k_l(k,l,t1,t2)
@@ -99,5 +99,12 @@ def join_basis(triangle_w,triangle_h):
 
 
 if __name__ == '__main__':
-    generate_basis(8, 8)
-    join_basis(16,16)
+    for i in range(0,4):
+        base = generate_base_0_n(i,4,4)
+        base = np.round(base, decimals=3)
+        print("Base T_0_{}".format(i))
+        print(base)
+        print("Sum: {}".format(np.sum(base)))
+        print("=====================")
+    #generate_basis(8, 8)
+    #join_basis(8,8)
