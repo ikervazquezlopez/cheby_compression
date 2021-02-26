@@ -4,14 +4,21 @@ import math
 from scipy import io, integrate, linalg, signal
 from scipy.sparse.linalg import eigs
 import sys
+from os.path import isfile, isdir, join
+from os import listdir
+import random
+from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 
 SHOW_BASIS = False
-VERBOSE = 2
+VERBOSE = 0
 
 BLOCK_SIZE = 8
 
 ORTHOGONAL_TRANSFORM = True
+
+SAMPLES = 100
 
 
 
@@ -117,7 +124,7 @@ def createTriangleDCT_ortho(dtt):
 
 
 def reshape_array_to_block(triangle_array):
-    block = np.empty((BLOCK_SIZE,BLOCK_SIZE))
+    block = np.zeros((BLOCK_SIZE,BLOCK_SIZE))
     i = 0
     for y in range(0, BLOCK_SIZE):
         for x in range(0, y+1):
@@ -166,7 +173,10 @@ def transform_triangle_inverse(transform, dtt, idx):
 
 
 if __name__ == '__main__':
-    #sizeN = 8
+
+    if not isdir(sys.argv[1]):
+        exit("in_dir_path is not valid!")
+    in_dir = sys.argv[1]
 
     if VERBOSE > 1:
         if ORTHOGONAL_TRANSFORM:
@@ -191,31 +201,41 @@ if __name__ == '__main__':
         cv2.destroyAllWindows()
 
 
+    files = [f for f in listdir(in_dir) if isfile(join(in_dir, f))]
 
-    J = cv2.imread("tests/lena.png",cv2.IMREAD_GRAYSCALE)[160:160+BLOCK_SIZE,235:235+BLOCK_SIZE] -128
-    #J = np.ones((BLOCK_SIZE,BLOCK_SIZE))
-    J = np.tril(J)
+    energy = []
+    for f in tqdm(files):
+        img = cv2.imread(join(in_dir,f),cv2.IMREAD_GRAYSCALE)
+        # Perform random cropping of the image SAMPLES times
+        for _ in range(0,SAMPLES):
+            x = random.randint(0,img.shape[1]-BLOCK_SIZE-1)
+            y = random.randint(0,img.shape[0]-BLOCK_SIZE-1)
 
-    if VERBOSE > 1:
-        print("Input image block:")
-        print(J)
-        print("=====================")
+            J = img[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] - 128
+            J = np.tril(J)
+
+            if VERBOSE > 1:
+                print("Input image block:")
+                print(J)
+                print("=====================")
 
 
-    # Transform image to frequency domain
-    if ORTHOGONAL_TRANSFORM:
-        triangleTransformedPart = transform_triangle_forward(J,dot,idx)
-    else:
-        triangleTransformedPart = transform_triangle_forward(J,dtt,idx)
+            # Transform image to frequency domain
+            if ORTHOGONAL_TRANSFORM:
+                triangleTransformedPart = transform_triangle_forward(J,dot,idx)
+            else:
+                triangleTransformedPart = transform_triangle_forward(J,dtt,idx)
 
-    """
-    # throw away three quarter of the frequencies
-    triangleTransformedPart[int((sizeN/2)*(sizeN/2)):-1] = 0
-    triangleTransformedPart[-1] = 0
-    """
+            # Add the transform to the energy list
+            transform = reshape_array_to_block(triangleTransformedPart)
+            energy.append(transform)
 
-    # Transform to image space domain again
-    if ORTHOGONAL_TRANSFORM:
-        inversed = transform_triangle_inverse(triangleTransformedPart,dot,idx)
-    else:
-        inversed = transform_triangle_inverse(triangleTransformedPart,dtt,idx)
+    # Average the energy
+    energy = np.mean(np.array(energy), axis=0)
+    energy = np.abs(energy)
+
+    print("Transform 'energy':")
+    print(np.round(energy).astype(np.int64))
+
+    plt.imshow(energy)
+    plt.show()
