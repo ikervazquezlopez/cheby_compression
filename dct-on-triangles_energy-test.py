@@ -18,7 +18,7 @@ BLOCK_SIZE = 8
 
 ORTHOGONAL_TRANSFORM = True
 
-SAMPLES = 100
+SAMPLES = 1000
 
 
 
@@ -204,6 +204,7 @@ if __name__ == '__main__':
     files = [f for f in listdir(in_dir) if isfile(join(in_dir, f))]
 
     energy = []
+    e = 0
     for f in tqdm(files):
         img = cv2.imread(join(in_dir,f),cv2.IMREAD_GRAYSCALE)
         # Perform random cropping of the image SAMPLES times
@@ -223,12 +224,24 @@ if __name__ == '__main__':
             # Transform image to frequency domain
             if ORTHOGONAL_TRANSFORM:
                 triangleTransformedPart = transform_triangle_forward(J,dot,idx)
+                inverse = transform_triangle_inverse(triangleTransformedPart,dot,idx)
             else:
                 triangleTransformedPart = transform_triangle_forward(J,dtt,idx)
+                inverse = transform_triangle_inverse(triangleTransformedPart,dtt,idx)
+
+            inverse = reshape_array_to_block(inverse)
+            diff = np.abs(J-inverse)
+            error = np.sum(diff)
+            if error > 0.000005:
+                e = e + 1
+
+
 
             # Add the transform to the energy list
             transform = reshape_array_to_block(triangleTransformedPart)
             energy.append(transform)
+
+    print("Incorrect inverse #: {}".format(e))
 
     # Average the energy
     energy = np.mean(np.array(energy), axis=0)
