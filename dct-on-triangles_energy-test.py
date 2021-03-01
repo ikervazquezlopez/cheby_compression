@@ -166,7 +166,66 @@ def transform_triangle_inverse(transform, dtt, idx):
 
     return reconstructed
 
+#=====================================================
+# Squared DCT transform
+#=====================================================
 
+def DCT_coeff(block, u, v):
+    bh, bw = block.shape
+
+    # Normalization factors
+    a_u = 1
+    a_v = 1
+    if u == 0:
+        a_u = 1/math.sqrt(2)
+    if v == 0:
+        a_v = 1/math.sqrt(2)
+
+    # Compute the frequence (u,v) coeff sum
+    sum = 0
+    for x in range(bw):
+        for y in range(bh):
+            c1 = math.cos( (2*x+1)*u*math.pi / 16 )
+            c2 = math.cos( (2*y+1)*v*math.pi / 16 )
+            sum = sum + block[y,x] * c1 * c2
+    sum = 0.25 * a_u*a_v * sum
+
+    return sum
+
+def DCT_transform(img):
+    h, w = img.shape
+    coeffs = np.zeros(img.shape)
+    for u in range(0, w):
+        for v in range(0, h):
+            coeffs[v, u] = DCT_coeff(img, u, v)
+    return coeffs
+
+def DCT_inv_coeff(coeff, x, y):
+    h, w = coeff.shape
+
+    sum = 0
+    for u in range(0, w):
+        for v in range(0, h):
+            # Normalization factors
+            a_u = 1
+            a_v = 1
+            if u == 0:
+                a_u = 1/math.sqrt(2)
+            if v == 0:
+                a_v = 1/math.sqrt(2)
+
+            c1 = math.cos( (2*x+1)*u*math.pi / 16 )
+            c2 = math.cos( (2*y+1)*v*math.pi / 16 )
+            sum = sum + a_u*a_v * coeff[v, u] * c1 * c2
+    return sum / 4
+
+def DCT_inv_transform(coeff):
+    h, w = coeff.shape
+    img = np.zeros(coeff.shape)
+    for x in range(0, w):
+        for y in range(0, h):
+            img[y,x] = DCT_inv_coeff(coeff, x, y)
+    return img
 
 
 
@@ -203,7 +262,8 @@ if __name__ == '__main__':
 
     files = [f for f in listdir(in_dir) if isfile(join(in_dir, f))]
 
-    energy = []
+    energy_triangle = []
+    energy_dct = []
     e = 0
     for f in tqdm(files):
         img = cv2.imread(join(in_dir,f),cv2.IMREAD_GRAYSCALE)
@@ -220,6 +280,8 @@ if __name__ == '__main__':
                 print(J)
                 print("=====================")
 
+
+            transform_dct = DCT_transform(J)
 
             # Transform image to frequency domain
             if ORTHOGONAL_TRANSFORM:
@@ -238,17 +300,29 @@ if __name__ == '__main__':
 
 
             # Add the transform to the energy list
-            transform = reshape_array_to_block(triangleTransformedPart)
-            energy.append(transform)
+            transform_triangle = reshape_array_to_block(triangleTransformedPart)
+            energy_triangle.append(transform_triangle)
+            energy_dct.append(transform_dct)
 
     print("Incorrect inverse #: {}".format(e))
 
     # Average the energy
-    energy = np.mean(np.array(energy), axis=0)
-    energy = np.abs(energy)
+    energy_triangle = np.mean(np.array(energy_triangle), axis=0)
+    energy_triangle = np.abs(energy_triangle)
+    energy_dct = np.mean(np.array(energy_dct), axis=0)
+    energy_dct = np.abs(energy_dct)
 
-    print("Transform 'energy':")
-    print(np.round(energy).astype(np.int64))
+    print("Transform 'energy triangle':")
+    print(np.round(energy_triangle).astype(np.int64))
 
-    plt.imshow(energy)
+    print("Transform 'energy DCT':")
+    print(np.round(energy_dct).astype(np.int64))
+
+    f = plt.figure()
+    f.add_subplot(1,2,1)
+    plt.imshow(energy_triangle)
+    plt.title("Triangle DCT energy")
+    f.add_subplot(1,2,2)
+    plt.imshow(energy_dct)
+    plt.title("Square DCT energy")
     plt.show()
