@@ -18,7 +18,7 @@ BLOCK_SIZE = 8
 
 ORTHOGONAL_TRANSFORM = True
 
-SAMPLES = 1000
+SAMPLES = 1
 
 
 
@@ -57,6 +57,21 @@ def generate_basis_img(dtt, triangle_h):
 #=====================================================
 # Utility functions
 #=====================================================
+
+# Initializes the required data for the TDCT
+def init_data():
+    # Generate the basis Chebysev polynomials in triangle
+    dtt = createTriangleDCT(BLOCK_SIZE);
+    dot = createTriangleDCT_ortho(dtt)
+
+    dttp = createTriangleDCT_p(BLOCK_SIZE);
+    dotp = createTriangleDCT_ortho_p(dttp)
+
+    idx = np.tril(np.ones((BLOCK_SIZE,BLOCK_SIZE))) == 1
+    idxp = np.tril(np.ones((BLOCK_SIZE-1,BLOCK_SIZE-1))) == 1
+
+    data = {"dot": dot, "dotp": dotp, "idx": idx, "idxp": idxp}
+    return data
 
 # Evaluate the Chebysev B2 polynomials on zeros of ideal (common zeros of all basis)
 def evalChebyshevB2(idxK,idxL,arg1,arg2):
@@ -186,6 +201,38 @@ def reshape_array_to_block(triangle_array, size):
             i = i+1
     return block
 
+def reshape_block_to_array(triangle_block, size):
+    arr = []
+    for y in range(0, size):
+        for x in range(0, y+1):
+            arr.append(triangle_block[y,x])
+
+    return np.array(arr)
+
+
+def get_lower_triangle(block):
+    T = np.tril(block)
+    return T
+
+def get_upper_triangle(block):
+    T = block.T
+    T = T[1:,:BLOCK_SIZE-1]
+    T = np.tril(T)
+    return T
+
+
+# Join two triangles (BLOCK_SIZE, BLOCK_SIZE) and (BLOCK_SIZE-1, BLOCK_SIZE-1)
+def join_lower_upper_triangles(lowerT, upperT):
+
+    transform_lowerT = reshape_array_to_block(lowerT, BLOCK_SIZE)
+    transform_upperT = reshape_array_to_block(upperT, BLOCK_SIZE-1)
+    tmp = np.zeros((BLOCK_SIZE,BLOCK_SIZE))
+    tmp[:-1,1:] = transform_upperT.T
+    #transform = cv2.flip(transform_lowerT,-1)
+    transform = transform_lowerT + tmp
+    #transform = cv2.flip(transform,-1)
+
+    return transform
 
 #=====================================================
 # Transforms of the triangles
@@ -209,6 +256,7 @@ def transform_triangle_inverse(transform, dtt, idx):
     if VERBOSE > 0:
         print("Inversing transform to image domain...")
 
+    #transform = reshape_block_to_array(transform, transform.shape[0])
     reconstructed = linalg.lstsq(dtt, transform)[0]
     reconstructed = np.reshape(reconstructed,(reconstructed.shape[0],1))
 
@@ -219,6 +267,25 @@ def transform_triangle_inverse(transform, dtt, idx):
         print("=====================")
 
     return reconstructed
+
+
+
+# Transform block into the triangle block frequency domain
+def transform_block_TDCT_forward(block, data):
+    J = get_lower_triangle(block)
+    Jp = get_upper_triangle(block)
+
+    lowerT = transform_triangle_forward(J,data['dot'],data['idx'])
+    upperT = transform_triangle_forward(Jp,data['dotp'],data['idxp'])
+
+    return lowerT, upperT
+
+def transform_block_TDCT_inverse(lowerT, upperT, data):
+
+    lowerT = transform_triangle_inverse(lowerT,data['dot'],data['idx'])
+    upperT = transform_triangle_inverse(upperT,data['dotp'],data['idxp'])
+
+    return lowerT, upperT
 
 #=====================================================
 # Squared DCT transform
@@ -283,121 +350,75 @@ def DCT_inv_transform(coeff):
 
 
 
-
-
 if __name__ == '__main__':
 
-    if not isdir(sys.argv[1]):
-        exit("in_dir_path is not valid!")
-    in_dir = sys.argv[1]
+    filename = sys.argv[1]
+    if not isfile(filename):
+        print("Filename not valid")
 
-    if VERBOSE > 1:
-        if ORTHOGONAL_TRANSFORM:
-            print("ORHTOGONAL")
-        else:
-            print("NOT ORTHOGONAL")
-        print("+++++++++++++++++++++++++++++")
+    data = init_data()
 
-    # Generate the basis Chebysev polynomials in triangle
-    dtt = createTriangleDCT(BLOCK_SIZE);
-    dot = createTriangleDCT_ortho(dtt)
-
-    dttp = createTriangleDCT_p(BLOCK_SIZE);
-    dotp = createTriangleDCT_ortho_p(dttp)
-
-    idx = np.tril(np.ones((BLOCK_SIZE,BLOCK_SIZE))) == 1
-    idxp = np.tril(np.ones((BLOCK_SIZE-1,BLOCK_SIZE-1))) == 1
+    img = cv2.imread(filename,cv2.IMREAD_GRAYSCALE)
+    img = cv2.flip(img, 1)
+    h, w = img.shape
+    img_TDCT = np.zeros_like(img)
+    img_SDCT = np.zeros_like(img)
+    inverse_TDCT = np.zeros_like(img)
+    inverse_SDCT = np.zeros_like(img)
+    # Perform random cropping of the image SAMPLES times
+    for x in range(0,w,BLOCK_SIZE):
+        for y in range(0,h,BLOCK_SIZE):
+            if x+BLOCK_SIZE<=w and y+BLOCK_SIZE<=h:
 
 
+                J = img[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE].astype(np.float64)
+                J = J - 128
 
-    # Show basis for visual understanding of frequencies
-    if SHOW_BASIS:
-        b = generate_basis_img(dtt, BLOCK_SIZE)
-        b = cv2.resize(b, None, fx=4, fy=4, interpolation=cv2.INTER_NEAREST)
-        cv2.imshow("basis", b)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+                # SDCT over a block
+                dct_transform = DCT_transform(J)
+                img_SDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = dct_transform
+                inverse_SDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = DCT_inv_transform(dct_transform) + 128
+
+                # TDCT overe a block (two triangles)
+                lowerT_transform, upperT_transform = transform_block_TDCT_forward(J, data)
+                transform = join_lower_upper_triangles(lowerT_transform, upperT_transform)
+                img_TDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = transform
+
+                lowerT_inverse, upperT_inverse = transform_block_TDCT_inverse(lowerT_transform, upperT_transform, data)
+                inverse = join_lower_upper_triangles(lowerT_inverse, upperT_inverse)
+
+                inverse_TDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = inverse + 128
+
+    print(np.min(inverse_SDCT))
+    """
+    cv2.imshow("out", inverse_TDCT)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    """
+    f = plt.figure()
+    f.add_subplot(2,3,1)
+    plt.imshow(img)
+    plt.title("Original img")
+    f.add_subplot(2,3,2)
+    plt.imshow(img_TDCT)
+    plt.title("TDCT")
+    f.add_subplot(2,3,3)
+    plt.imshow(inverse_TDCT)
+    plt.title("Inverse of TDCT")
+
+    f.add_subplot(2,3,4)
+    plt.imshow(img)
+    plt.title("Original img")
+    f.add_subplot(2,3,5)
+    plt.imshow(img_SDCT)
+    plt.title("SDCT")
+    f.add_subplot(2,3,6)
+    plt.imshow(inverse_SDCT)
+    plt.title("Inverse of SDCT")
+    plt.show()
 
 
-    files = [f for f in listdir(in_dir) if isfile(join(in_dir, f))]
-
-    energy_triangle = []
-    energy_dct = []
-    e = 0
-    for f in tqdm(files):
-        img = cv2.imread(join(in_dir,f),cv2.IMREAD_GRAYSCALE)
-        # Perform random cropping of the image SAMPLES times
-        for _ in range(0,SAMPLES):
-            x = random.randint(0,img.shape[1]-BLOCK_SIZE-1)
-            y = random.randint(0,img.shape[0]-BLOCK_SIZE-1)
-
-            J = img[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] - 128
-            transform_dct = DCT_transform(J)
-            Jp = cv2.flip(J,-1)
-            Jp = Jp[1:,:BLOCK_SIZE-1]
-            J = np.tril(J)
-            Jp = np.tril(Jp)
-
-            if VERBOSE > 1:
-                print("Input image block:")
-                print(J)
-                print("=====================")
 
 
-
-
-            # Transform image to frequency domain
-            if ORTHOGONAL_TRANSFORM:
-                triangleTransformedPart = transform_triangle_forward(J,dot,idx)
-                triangleTransformedPart_p = transform_triangle_forward(Jp,dotp,idxp)
-                inverse = transform_triangle_inverse(triangleTransformedPart,dot,idx)
-            else:
-                triangleTransformedPart = transform_triangle_forward(J,dtt,idx)
-                triangleTransformedPart_p = transform_triangle_forward(Jp,dttp,idxp)
-                inverse = transform_triangle_inverse(triangleTransformedPart,dtt,idx)
-
-            """
-            # Check if transform->inverse generates the original block
-            inverse = reshape_array_to_block(inverse)
-            diff = np.abs(J-inverse)
-            error = np.sum(diff)
-            if error > 0.000005:
-                e = e + 1
-            """
-
-            # Join two triangles (BLOCK_SIZE, BLOCK_SIZE) and (BLOCK_SIZE-1, BLOCK_SIZE-1)
-            transform_triangle = reshape_array_to_block(triangleTransformedPart, BLOCK_SIZE)
-            transform_triangle_p = reshape_array_to_block(triangleTransformedPart_p, BLOCK_SIZE-1)
-            tmp = np.zeros((BLOCK_SIZE,BLOCK_SIZE))
-            tmp[1:,:-1] = transform_triangle_p
-            tmp = cv2.flip(tmp.T,-1)
-            transform_triangle = cv2.flip(transform_triangle,-1)
-            transform_triangle = transform_triangle + tmp
-            transform_triangle = cv2.flip(transform_triangle,-1)
-
-            # Add the transform to the energy list
-            energy_triangle.append(transform_triangle)
-            energy_dct.append(transform_dct)
 
     #print("Incorrect inverse #: {}".format(e))
-
-    # Average the energy
-    energy_triangle = np.mean(np.array(energy_triangle), axis=0)
-    energy_triangle = np.abs(energy_triangle)
-    energy_dct = np.mean(np.array(energy_dct), axis=0)
-    energy_dct = np.abs(energy_dct)
-
-    print("Transform 'energy triangle':")
-    print(np.round(energy_triangle).astype(np.int64))
-
-    print("Transform 'energy DCT':")
-    print(np.round(energy_dct).astype(np.int64))
-
-    f = plt.figure()
-    f.add_subplot(1,2,1)
-    plt.imshow(energy_triangle)
-    plt.title("Triangle DCT energy")
-    f.add_subplot(1,2,2)
-    plt.imshow(energy_dct)
-    plt.title("Square DCT energy")
-    plt.show()
