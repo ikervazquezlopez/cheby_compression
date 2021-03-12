@@ -21,7 +21,35 @@ ORTHOGONAL_TRANSFORM = True
 SAMPLES = 1
 
 
+Q_sdct = np.array([[16, 11, 10, 16, 24, 40, 51, 61],
+                    [12, 12, 14, 19, 26, 58, 60, 55],
+                    [14, 13, 16, 24, 40, 57, 69, 56],
+                    [14, 17, 22, 29, 51, 87, 80, 62],
+                    [18, 22, 37, 56, 68, 109, 103, 77],
+                    [24, 35, 55, 64, 81, 104, 113, 92],
+                    [49, 64, 78, 87, 103, 121, 120, 101],
+                    [72, 92, 95, 98, 112, 100, 103, 99]])
 
+Q_tdct_low = np.array([[16,   0,  0,  0,  0, 0,  0,  0],
+                        [12, 11,  0,  0,  0, 0,  0,  0],
+                        [14, 12, 10,  0,  0, 0,  0,  0],
+                        [14, 13, 14, 16,  0, 0,  0,  0],
+                        [18, 17, 16, 19, 24, 0,  0,  0],
+                        [24, 22, 22, 24, 26, 40, 0,  0],
+                        [49, 35, 37, 29, 40, 58, 51, 0],
+                        [72, 64, 55, 56, 51, 57, 60, 61]])
+
+
+Q_tdct_up = np.array([[0,  16, 12, 14, 14, 18, 24, 49],
+                        [0, 0, 11, 12, 13, 17, 22, 35],
+                        [0, 0,  0, 10, 14, 16, 22, 35],
+                        [0, 0,  0,  0, 16, 19, 24, 29],
+                        [0, 0,  0,  0,  0, 24, 26, 40],
+                        [0, 0,  0,  0,  0,  0, 40, 58],
+                        [0, 0,  0,  0,  0,  0,  0, 51],
+                        [0, 0,  0,  0,  0,  0,  0,  0]])
+
+Q_tdct = Q_tdct_low + Q_tdct_up
 
 
 #=====================================================
@@ -220,6 +248,11 @@ def get_upper_triangle(block):
     T = np.tril(T)
     return T
 
+def get_upper_lower_triangles(block):
+    lower = get_lower_triangle(block)
+    upper = get_upper_triangle(block)
+    return (lower, upper)
+
 
 # Join two triangles (BLOCK_SIZE, BLOCK_SIZE) and (BLOCK_SIZE-1, BLOCK_SIZE-1)
 def join_lower_upper_triangles(lowerT, upperT):
@@ -233,6 +266,38 @@ def join_lower_upper_triangles(lowerT, upperT):
     #transform = cv2.flip(transform,-1)
 
     return transform
+
+
+def reduct_triangle_transform_coefficients(t_block):
+
+    redux = np.copy(t_block)
+    for x in range(BLOCK_SIZE-1, 2, -1):
+        redux[0,x] = t_block[0,x] - t_block[0,x-1]
+    for y in range(BLOCK_SIZE-1, 1, -1):
+        redux[y,0] = t_block[y,0] - t_block[y-1, 0]
+
+    for y in range(2, BLOCK_SIZE):
+        redux[y,y] = t_block[y,y] - t_block[y-1, y-1]
+    for  y in range(2, BLOCK_SIZE-1):
+        redux[y,y+1] = t_block[y,y+1] - t_block[y-1, y]
+
+    return redux
+
+def unreduct_triangle_transform_coefficients(t_block):
+
+    redux = np.copy(t_block)
+    for x in range(3, BLOCK_SIZE):
+        redux[0,x] = redux[0,x-1] + redux[0,x]
+    for y in range(2, BLOCK_SIZE):
+        redux[y,0] = redux[y-1, 0] + redux[y,0]
+
+    for y in range(2, BLOCK_SIZE):
+        redux[y,y] = redux[y-1, y-1] + redux[y,y]
+    for  y in range(2, BLOCK_SIZE-1):
+        redux[y,y+1] = redux[y-1, y] + redux[y,y+1]
+
+    return redux
+
 
 #=====================================================
 # Transforms of the triangles
@@ -306,8 +371,8 @@ def DCT_coeff(block, u, v):
     sum = 0
     for x in range(bw):
         for y in range(bh):
-            c1 = math.cos( (2*x+1)*u*math.pi / 16 )
-            c2 = math.cos( (2*y+1)*v*math.pi / 16 )
+            c1 = math.cos( (2*x+1)*u*math.pi / (2*BLOCK_SIZE) )
+            c2 = math.cos( (2*y+1)*v*math.pi / (2*BLOCK_SIZE) )
             sum = sum + block[y,x] * c1 * c2
     sum = 0.25 * a_u*a_v * sum
 
@@ -335,8 +400,8 @@ def DCT_inv_coeff(coeff, x, y):
             if v == 0:
                 a_v = 1/math.sqrt(2)
 
-            c1 = math.cos( (2*x+1)*u*math.pi / 16 )
-            c2 = math.cos( (2*y+1)*v*math.pi / 16 )
+            c1 = math.cos( (2*x+1)*u*math.pi / (2*BLOCK_SIZE) )
+            c2 = math.cos( (2*y+1)*v*math.pi / (2*BLOCK_SIZE) )
             sum = sum + a_u*a_v * coeff[v, u] * c1 * c2
     return sum / 4
 
@@ -359,42 +424,75 @@ if __name__ == '__main__':
     data = init_data()
 
     img = cv2.imread(filename,cv2.IMREAD_GRAYSCALE)
-    img = cv2.flip(img, 1)
+    #img = cv2.resize(img, None, fx=0.25, fy=0.25)
+    img = cv2.flip(img,1)
     h, w = img.shape
+    print(w,h)
     img_TDCT = np.zeros_like(img)
     img_SDCT = np.zeros_like(img)
     inverse_TDCT = np.zeros_like(img)
     inverse_SDCT = np.zeros_like(img)
-    # Perform random cropping of the image SAMPLES times
-    for x in range(0,w,BLOCK_SIZE):
+    energy_TDCT = []
+    energy_SDCT = []
+    
+    for x in tqdm(range(0,w,BLOCK_SIZE)):
         for y in range(0,h,BLOCK_SIZE):
             if x+BLOCK_SIZE<=w and y+BLOCK_SIZE<=h:
-
-
                 J = img[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE].astype(np.float64)
                 J = J - 128
 
                 # SDCT over a block
                 dct_transform = DCT_transform(J)
+                dct_transform = dct_transform / Q_sdct
+                dct_transform = np.round(dct_transform)
+                energy_SDCT.append(dct_transform)
                 img_SDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = dct_transform
-                inverse_SDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = DCT_inv_transform(dct_transform) + 128
 
-                # TDCT overe a block (two triangles)
+                # TDCT over a block (two triangles)
                 lowerT_transform, upperT_transform = transform_block_TDCT_forward(J, data)
                 transform = join_lower_upper_triangles(lowerT_transform, upperT_transform)
+                #transform = reduct_triangle_transform_coefficients(transform)
+                transform = transform / Q_tdct
+                transform = np.round(transform)
+                energy_TDCT.append(transform)
                 img_TDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = transform
 
+                # Inverse SDCT
+                dct_transform = dct_transform * Q_sdct
+                inverse_SDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = DCT_inv_transform(dct_transform) + 128
+
+                # Inverse TDCT
+                #transform = unreduct_triangle_transform_coefficients(transform)
+                lowerT_transform, upperT_transform = get_upper_lower_triangles(transform)
+                lowerT_transform = reshape_block_to_array(lowerT_transform, BLOCK_SIZE)
+                upperT_transform = reshape_block_to_array(upperT_transform, BLOCK_SIZE-1)
                 lowerT_inverse, upperT_inverse = transform_block_TDCT_inverse(lowerT_transform, upperT_transform, data)
                 inverse = join_lower_upper_triangles(lowerT_inverse, upperT_inverse)
-
                 inverse_TDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = inverse + 128
 
-    print(np.min(inverse_SDCT))
+    """
+    print("Energy TDCT")
+    print(np.round(np.std(np.array(energy_TDCT), axis=0)))
+    print("================")
+    print("Energy SDCT")
+    print(np.round(np.std(np.array(energy_SDCT), axis=0)))
+    f = plt.figure()
+    f.add_subplot(1,2,1)
+    plt.imshow(np.mean(np.array(energy_TDCT), axis=0))
+    plt.title("TDCT")
+    f.add_subplot(1,2,2)
+    plt.imshow(np.mean(np.array(energy_SDCT), axis=0))
+    plt.title("SDCT")
+    plt.show()
+    plt.clf()
+    """
+
     """
     cv2.imshow("out", inverse_TDCT)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     """
+
     f = plt.figure()
     f.add_subplot(2,3,1)
     plt.imshow(img)
@@ -418,7 +516,7 @@ if __name__ == '__main__':
     plt.show()
 
 
-
+    #plt.savefig("TDCT-SDCT_comparison.png")
 
 
     #print("Incorrect inverse #: {}".format(e))
