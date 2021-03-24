@@ -20,6 +20,24 @@ ORTHOGONAL_TRANSFORM = True
 
 SAMPLES = 1
 
+zig_TDCT = [[0,0],[0,1],[1,1],[1,2],[1,0],[0,2],[2,2],[2,3],
+        [2,0],[0,3],[2,1],[1,3],[3,3],[3,4],[3,0],[0,4],
+        [3,1],[1,4],[3,2],[2,4],[4,4],[4,5],[5,5],[5,6],
+        [6,6],[6,7],[4,0],[0,5],[4,1],[1,5],[4,2],[2,5],
+        [4,3],[3,5],[5,0],[0,6],[5,1],[1,6],[5,2],[2,6],
+        [5,3],[3,6],[5,4],[4,6],[6,0],[0,7],[6,1],[1,7],
+        [6,2],[2,7],[6,3],[3,7],[6,4],[4,7],[6,5],[5,7],
+        [7,0],[7,1],[7,2],[7,3],[7,4],[7,5],[7,6],[7,7]]
+
+zig_SDCT = [[0,0],[0,1],[1,0],[2,0],[1,1],[0,2],[0,3],[1,2],
+        [2,1],[3,0],[4,0],[3,1],[2,2],[1,3],[0,4],[0,5],
+        [1,4],[2,3],[3,2],[4,1],[5,0],[6,0],[5,1],[4,2],
+        [3,3],[2,4],[1,5],[0,6],[0,7],[1,6],[2,5],[3,4],
+        [4,3],[5,2],[6,1],[7,0],[7,1],[6,2],[5,3],[4,4],
+        [3,5],[2,6],[1,7],[2,7],[3,6],[4,5],[5,4],[6,3],
+        [7,2],[7,3],[6,4],[5,5],[4,6],[3,7],[4,7],[5,6],
+        [6,5],[7,4],[7,5],[6,6],[5,7],[6,7],[7,6],[7,7]]
+
 
 Q_sdct = np.array([[16, 11, 10, 16, 24, 40, 51, 61],
                     [12, 12, 14, 19, 26, 58, 60, 55],
@@ -298,6 +316,18 @@ def unreduct_triangle_transform_coefficients(t_block):
 
     return redux
 
+# Rearranges the transform coefficients base on 'order' list (Customized JPEG ZigZag)
+def order_transform_coefficients(transform, order):
+    return [transform[y,x] for y,x in order]
+
+# Inverse of order_transform_coefficients if 'order' is the same.
+def unorder_transform_coefficients(array, order):
+    tmp = np.zeros((BLOCK_SIZE, BLOCK_SIZE))
+    for i,c in zip(list(range(len(array))), order):
+        tmp[c[0],c[1]] = array[i]
+    return tmp
+
+
 
 #=====================================================
 # Transforms of the triangles
@@ -428,13 +458,16 @@ if __name__ == '__main__':
     img = cv2.flip(img,1)
     h, w = img.shape
     print(w,h)
-    img_TDCT = np.zeros_like(img)
-    img_SDCT = np.zeros_like(img)
-    inverse_TDCT = np.zeros_like(img)
-    inverse_SDCT = np.zeros_like(img)
+    img_TDCT = np.zeros_like(img).astype(np.float32)
+    img_SDCT = np.zeros_like(img).astype(np.float32)
+    inverse_TDCT = np.zeros_like(img).astype(np.float32)
+    inverse_SDCT = np.zeros_like(img).astype(np.float32)
     energy_TDCT = []
     energy_SDCT = []
-    
+    energy_zig_TDCT = []
+    energy_zig_SDCT = []
+    energy_zig_TDCT_rec = []
+
     for x in tqdm(range(0,w,BLOCK_SIZE)):
         for y in range(0,h,BLOCK_SIZE):
             if x+BLOCK_SIZE<=w and y+BLOCK_SIZE<=h:
@@ -445,15 +478,21 @@ if __name__ == '__main__':
                 dct_transform = DCT_transform(J)
                 dct_transform = dct_transform / Q_sdct
                 dct_transform = np.round(dct_transform)
+                energy_zig_SDCT.append([dct_transform[y,x] for y,x in zig_SDCT])
                 energy_SDCT.append(dct_transform)
                 img_SDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = dct_transform
 
                 # TDCT over a block (two triangles)
                 lowerT_transform, upperT_transform = transform_block_TDCT_forward(J, data)
                 transform = join_lower_upper_triangles(lowerT_transform, upperT_transform)
-                #transform = reduct_triangle_transform_coefficients(transform)
+
+
                 transform = transform / Q_tdct
                 transform = np.round(transform)
+                #transform = reduct_triangle_transform_coefficients(transform)
+
+                tmp = order_transform_coefficients(transform, zig_TDCT)
+                energy_zig_TDCT.append(tmp)
                 energy_TDCT.append(transform)
                 img_TDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = transform
 
@@ -461,8 +500,12 @@ if __name__ == '__main__':
                 dct_transform = dct_transform * Q_sdct
                 inverse_SDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = DCT_inv_transform(dct_transform) + 128
 
-                # Inverse TDCT
+                # Reconstruct TDCT coefficients
+                transform = unorder_transform_coefficients(tmp, zig_TDCT)
                 #transform = unreduct_triangle_transform_coefficients(transform)
+                transform = transform * Q_tdct
+
+                # Inverse TDCT
                 lowerT_transform, upperT_transform = get_upper_lower_triangles(transform)
                 lowerT_transform = reshape_block_to_array(lowerT_transform, BLOCK_SIZE)
                 upperT_transform = reshape_block_to_array(upperT_transform, BLOCK_SIZE-1)
@@ -470,12 +513,24 @@ if __name__ == '__main__':
                 inverse = join_lower_upper_triangles(lowerT_inverse, upperT_inverse)
                 inverse_TDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = inverse + 128
 
-    """
+
     print("Energy TDCT")
     print(np.round(np.std(np.array(energy_TDCT), axis=0)))
     print("================")
     print("Energy SDCT")
     print(np.round(np.std(np.array(energy_SDCT), axis=0)))
+    print("================")
+    print("Energy zig TDCT (std)")
+    print(np.round(np.std(np.array(energy_zig_TDCT), axis=0)))
+    print("================")
+    print("Energy zig SDCT (std)")
+    print(np.round(np.std(np.array(energy_zig_SDCT), axis=0)))
+    print("================")
+    print("Energy zig TDCT (mean)")
+    print(np.round(np.mean(np.array(energy_zig_TDCT), axis=0)))
+    print("================")
+    print("Energy zig SDCT (mean)")
+    print(np.round(np.mean(np.array(energy_zig_SDCT), axis=0)))
     f = plt.figure()
     f.add_subplot(1,2,1)
     plt.imshow(np.mean(np.array(energy_TDCT), axis=0))
@@ -485,7 +540,7 @@ if __name__ == '__main__':
     plt.title("SDCT")
     plt.show()
     plt.clf()
-    """
+
 
     """
     cv2.imshow("out", inverse_TDCT)
