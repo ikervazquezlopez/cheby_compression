@@ -328,6 +328,24 @@ def unorder_transform_coefficients(array, order):
     return tmp
 
 
+def residuals(array):
+    a = np.array(array)
+    b = np.insert(a,0,0)
+    return a - b[:-1]
+
+
+
+def run_length_encoding(array):
+    encoded = []
+    i=0
+    for k in range(array.shape[0]):
+        if array[k] == 0:
+            i = i+1
+        else:
+            encoded.append((i,array[k]))
+            i = 0
+    return encoded
+
 
 #=====================================================
 # Transforms of the triangles
@@ -467,6 +485,10 @@ if __name__ == '__main__':
     energy_zig_TDCT = []
     energy_zig_SDCT = []
     energy_zig_TDCT_rec = []
+    energy_residuals_TDCT = []
+    energy_residuals_SDCT = []
+    energy_rle_TDCT = []
+    energy_rle_SDCT = []
 
     for x in tqdm(range(0,w,BLOCK_SIZE)):
         for y in range(0,h,BLOCK_SIZE):
@@ -478,7 +500,10 @@ if __name__ == '__main__':
                 dct_transform = DCT_transform(J)
                 dct_transform = dct_transform / Q_sdct
                 dct_transform = np.round(dct_transform)
-                energy_zig_SDCT.append([dct_transform[y,x] for y,x in zig_SDCT])
+                tmp = order_transform_coefficients(dct_transform, zig_SDCT)
+                energy_rle_SDCT.append(len(run_length_encoding(residuals(tmp))))
+                energy_residuals_SDCT.append(residuals(tmp))
+                energy_zig_SDCT.append(tmp)
                 energy_SDCT.append(dct_transform)
                 img_SDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = dct_transform
 
@@ -492,6 +517,8 @@ if __name__ == '__main__':
                 #transform = reduct_triangle_transform_coefficients(transform)
 
                 tmp = order_transform_coefficients(transform, zig_TDCT)
+                energy_rle_TDCT.append(len(run_length_encoding(residuals(tmp))))
+                energy_residuals_TDCT.append(residuals(tmp))
                 energy_zig_TDCT.append(tmp)
                 energy_TDCT.append(transform)
                 img_TDCT[y:y+BLOCK_SIZE, x:x+BLOCK_SIZE] = transform
@@ -531,6 +558,32 @@ if __name__ == '__main__':
     print("================")
     print("Energy zig SDCT (mean)")
     print(np.round(np.mean(np.array(energy_zig_SDCT), axis=0)))
+    print("================")
+    print("Energy residuals TDCT (mean)")
+    print(np.round(np.mean(np.array(energy_residuals_TDCT), axis=0)))
+    print("================")
+    print("Energy residuals TDCT (std)")
+    print(np.round(np.std(np.array(energy_residuals_TDCT), axis=0)))
+    print("================")
+    print("Energy residuals SDCT (mean)")
+    print(np.round(np.mean(np.array(energy_residuals_SDCT), axis=0)))
+    print("================")
+    print("Energy residuals SDCT (std)")
+    print(np.round(np.std(np.array(energy_residuals_SDCT), axis=0)))
+    print("================")
+    print("Energy rle TDCT")
+    print(np.mean(np.array(energy_rle_TDCT)))
+    print("================")
+    print("Energy rle SDCT")
+    print(np.mean(np.array(energy_rle_SDCT)))
+
+    print(img.shape, inverse_TDCT.shape)
+    psnr_TDCT = cv2.PSNR(img.astype(np.uint8), inverse_TDCT.astype(np.uint8))
+    psnr_SDCT = cv2.PSNR(img.astype(np.uint8), inverse_SDCT.astype(np.uint8))
+
+    print("PSNR TDCT: {}".format(psnr_TDCT))
+    print("PSNR SDCT: {}".format(psnr_SDCT))
+
     f = plt.figure()
     f.add_subplot(1,2,1)
     plt.imshow(np.mean(np.array(energy_TDCT), axis=0))
