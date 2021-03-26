@@ -1,0 +1,11 @@
+
+
+
+BLOCK_SIZE = 8
+
+ORTHOGONAL_TRANSFORM = True
+
+
+SHOW_BASIS = False
+
+VERBOSE = 0
